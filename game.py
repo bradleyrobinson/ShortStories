@@ -60,29 +60,37 @@ def move_player():
         play_random_note()
     return direction
 
-time_variations = [x for x in range(12, 64, 4)]
-time_random = random.choice(time_variations)
+def start_game():
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            sys.exit()
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                return True
+    return False
 
-
+note_choice = [70, 72, 75, 77, 75, 73, 72, 80, 82, 90, 97, 96]
+note_queue = deque(note_choice)
 def play_random_note():
-    if frames % time_random == 0:
-        midi_player.set_instrument(random.randint(0, 10))
-        rand_note = random.randrange(64, 128, 2)
-        midi_player.note_on(rand_note, 127)
+    try:
+        if frames % 40 == 0:
+            midi_player.set_instrument(random.randint(0, 12))
+            note = note_queue.popleft()
+            midi_player.note_on(note, 127)
+    except:
+        midi_player.note_on(random.choice(note_choice), 127)
 
 full_sequence = []
-for i in range(17):
-    if i > 12:
-        full_sequence.append([63, 66, 69])
-    elif i > 8:
-        full_sequence.append([63, 67, 69])
+for i in range(13):
+    if i > 8:
+        full_sequence.append([63, 65, 68])
     elif i > 4:
-        full_sequence.append([63, 67])
+        full_sequence.append([63, 66, 69])
     else:
         full_sequence.append([63])
 
 song_queue = deque(full_sequence)
-current_instrument = 0
+current_instrument = 8
 def play_steady_note():
     midi_player.set_instrument(current_instrument)
     notes = song_queue.popleft()
@@ -92,23 +100,26 @@ def play_steady_note():
         return True
     return False
 
-
+started = False
 while 1:
-    direction = move_player()
-    clock.tick(61)
-    background.change_color()
-    screen.fill(background.get_colors())
-    movement = move_player()
-    player.move(movement[0], movement[1], size, frames)
-    player.draw(screen)
-    pygame.display.flip()
-    frames += 1
-    if frames >= 61:
-        if play_steady_note():
-            full_sequence.reverse()
-            song_queue = deque(full_sequence)
-            current_instrument += 1
-            if current_instrument > 10:
-                current_instrument = 0
-        time_random = random.choice(time_variations)
-        frames = 0
+    if not started:
+        started = start_game()
+        screen.fill(background.get_colors())
+    else:
+        direction = move_player()
+        clock.tick(61)
+        background.change_color()
+        screen.fill(background.get_colors())
+        movement = move_player()
+        player.move(movement[0], movement[1], size, frames)
+        player.draw(screen)
+        pygame.display.flip()
+        frames += 1
+        if len(note_queue) == 0:
+            random.shuffle(note_choice)
+            note_queue = deque(note_choice)
+        if frames >= 61:
+            if play_steady_note():
+                full_sequence.reverse()
+                song_queue = deque(full_sequence)
+            frames = 0
