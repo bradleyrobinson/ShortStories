@@ -5,15 +5,18 @@ I want to create a game that is episodic in nature, but without a narrative thre
 In other words, I want an engine that allows for short story type games that share mechanics
 
 """
-from collections import deque
 import random, sys
 import pygame
 import pygame.midi
+import pygame.mixer
+import music
 from game_state import ColorChanger
-from game_sprites import Player
+from game_sprites import Player, Explosion
+from level import Text, opposite_color
 
 pygame.init()
 pygame.midi.init()
+pygame.mixer.init()
 midi_player = pygame.midi.Output(0)
 
 size = (480, 480)
@@ -26,6 +29,15 @@ background = ColorChanger()
 player = Player()
 direction = [0, 0]
 frames = 0
+note_choice = [70, 72, 75, 77, 75, 73, 72, 80, 82, 90, 97, 96]
+random_player = music.Musical(note_choice, modifier=music.shuffle_notes)
+# TODO: this is for experimentation, please move this somewhere else
+# TODO: have a message data type that is customizable
+messages = [' ', 'hello?', ' ', 'hello?', ' ',
+            "hi!", ' ', "hello?", ' ', "anyone?",
+            "anyone?"]
+first_text = Text(24, messages, size, True)
+hello_wav = pygame.mixer.Sound("hello.wav")
 
 # TODO: Move this where it makes sense
 right_down = 0
@@ -57,8 +69,10 @@ def move_player():
             if event.key == pygame.K_DOWN:
                 direction[1] = 2
     if direction[0] != 0 or direction[1] != 0:
-        play_random_note()
+        if frames % 38 == 0:
+            random_player.play_note(midi_player, instrument=random.randint(0, 12))
     return direction
+
 
 def start_game():
     for event in pygame.event.get():
@@ -69,37 +83,28 @@ def start_game():
                 return True
     return False
 
-note_choice = [70, 72, 75, 77, 75, 73, 72, 80, 82, 90, 97, 96]
-note_queue = deque(note_choice)
-def play_random_note():
-    try:
-        if frames % 40 == 0:
-            midi_player.set_instrument(random.randint(0, 12))
-            note = note_queue.popleft()
-            midi_player.note_on(note, 127)
-    except:
-        midi_player.note_on(random.choice(note_choice), 127)
 
-full_sequence = []
-for i in range(13):
-    if i > 8:
-        full_sequence.append([63, 65, 68])
-    elif i > 4:
-        full_sequence.append([63, 66, 69])
-    else:
-        full_sequence.append([63])
+def generate_controlled_explosion(location, color):
+    return Explosion(location, size, random.randint(10, 50), color)
 
-song_queue = deque(full_sequence)
-current_instrument = 8
-def play_steady_note():
-    midi_player.set_instrument(current_instrument)
-    notes = song_queue.popleft()
-    for note in notes:
-        midi_player.note_on(note, 127)
-    if len(song_queue) == 0:
-        return True
-    return False
+def generate_random_explosion():
+    return Explosion((random.randint(10, size[0]-10),
+                      random.randint(10, size[1]-10)), size,
+                     color=[random.randint(0, 254) for _ in range(3)])
 
+steady_sequence = music.create_repetitive_chords([[63, 65], [63,66,69], [63, 65, 68], [63, 65, 68, 70]], 5)
+steady_player = music.Musical(steady_sequence, modifier=music.reverse_notes)
+
+volume = 0.1
+echo_sound = pygame.mixer.Sound("stretchedecho.ogg")
+pygame.mixer.set_num_channels(12)
+echo_sound.set_volume(0.1)
+echo_sound.play(20)
+change_text_counter = 0
+change_sound_counter = 0
+change_sound_max = 580
+current_text_color = (0, 0, 0)
+explosions = []
 started = False
 while 1:
     if not started:
@@ -111,15 +116,37 @@ while 1:
         background.change_color()
         screen.fill(background.get_colors())
         movement = move_player()
-        player.move(movement[0], movement[1], size, frames)
+        player.move(movement[0], movement[1], size=size, change_by=0)
         player.draw(screen)
-        pygame.display.flip()
         frames += 1
-        if len(note_queue) == 0:
-            random.shuffle(note_choice)
-            note_queue = deque(note_choice)
+        change_text_counter += 1
+        change_sound_counter += 1
         if frames >= 61:
-            if play_steady_note():
-                full_sequence.reverse()
-                song_queue = deque(full_sequence)
+            steady_player.play_notes(midi_player, 8)
+            explosions.append(generate_controlled_explosion(
+                player.location, player.color.get_colors()
+            ))
             frames = 0
+        if change_text_counter >= 481:
+            change_text_counter = 0
+            current_text_color = opposite_color(background.get_colors())
+            first_text.render(current_text_color, screen, True)
+            explosions.append(generate_random_explosion())
+        else:
+            first_text.render(current_text_color, screen, False)
+        if change_sound_counter >= change_sound_max:
+            if volume < 1.0:
+                volume += .05
+            echo_sound.set_volume(volume)
+            hello_wav.play(fade_ms=100)
+            hello_wav.set_volume(volume)
+            if change_sound_max > 30:
+                change_sound_max -= 30
+            change_sound_counter = 0
+
+        for explosion in explosions:
+            explosion.draw(screen)
+            if len(explosion.boxes) == 0:
+                explosions.remove(explosion)
+
+        pygame.display.flip()
